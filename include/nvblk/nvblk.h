@@ -114,12 +114,15 @@ struct nvb_config {
 	uint8_t *gb;	/**< Generic buffer (block sized) */
 	uint8_t *mb;	/**< Metadata buffer (block sized) */
 
+#ifdef NVB_CFG_THREADSAFE
 	/* lock (optional): blocks execution for other threads */
 	int (*lock)(const struct nvb_config *cfg);
 
 	/* unlock (optional): unblocks execution for other threads */
 	int (*unlock)(const struct nvb_config *cfg);
+#endif
 
+#ifdef NVB_CFG_INITDEINIT
 	/* Initialize routine (optional). For systems that provide thread safety
 	 * using a lock mechanism the lock should be initialized in the routine.
 	 *
@@ -135,6 +138,7 @@ struct nvb_config {
 	 * Should return 0 on success, -ERRNO on failure.
 	 */
 	int (*deinit)(const struct nvb_config *cfg);
+#endif
 
 	/* Read a physical block at location p (the physical block size can
 	 * be retrieved from cfg).

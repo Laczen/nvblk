@@ -53,12 +53,16 @@ uint8_t gbuf[(1 << LOG2_BS)];
 struct nvb_config allgoodcfg = {
 	.mb = mbuf,
 	.gb = gbuf,
+#ifdef NVB_CFG_INITDEINIT
 	.init = NULL,
 	.deinit = NULL,
+#endif /* NVB_CFG_INITDEINIT */
 	.read = my_read,
 	.prog = my_prog,
+#ifdef NVB_CFG_THREADSAFE
 	.lock = NULL,
 	.unlock = NULL,
+#endif /* NVB_CFG_THREADSAFE */
 	.log2_bs = LOG2_BS,
 	.log2_bpeb = LOG2_BPEB,
 	.eb = EB,
@@ -91,12 +95,16 @@ static int my_prog_bad(const struct nvb_config *cfg, uint32_t p, const void *buf
 struct nvb_config badblockcfg = {
 	.mb = mbuf,
 	.gb = gbuf,
+#ifdef NVB_CFG_INITDEINIT
 	.init = NULL,
 	.deinit = NULL,
+#endif /* NVB_CFG_INITDEINIT */
 	.read = my_read,
 	.prog = my_prog_bad,
+#ifdef NVB_CFG_THREADSAFE
 	.lock = NULL,
 	.unlock = NULL,
+#endif /* NVB_CFG_THREADSAFE */
 	.log2_bs = LOG2_BS,
 	.log2_bpeb = LOG2_BPEB,
 	.eb = EB,

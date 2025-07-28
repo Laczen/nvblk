@@ -8,43 +8,61 @@
 #include <stdlib.h>
 
 /* Lock and unlock for thread safety */
-static int cfg_lock(const struct nvb_config *cfg)
+static inline int cfg_lock(const struct nvb_config *cfg)
 {
+#ifdef NVB_CFG_THREADSAFE
 	if (cfg->lock == NULL) {
 		return 0;
 	}
 
 	return cfg->lock(cfg);
-
+#else
+	(void)cfg;
+	return 0;
+#endif
 }
 
-static int cfg_unlock(const struct nvb_config *cfg)
+static inline int cfg_unlock(const struct nvb_config *cfg)
 {
+#ifdef NVB_CFG_THREADSAFE
 	if (cfg->unlock == NULL) {
 		return 0;
 	}
 
 	return cfg->unlock(cfg);
+#else
+	(void)cfg;
+	return 0;
+#endif
 }
 
 /* Hardware init and deinit routines */
-static int cfg_init(const struct nvb_config *cfg)
+static inline int cfg_init(const struct nvb_config *cfg)
 {
+#ifdef NVB_CFG_INITDEINIT
 	if (cfg->init == NULL) {
 		return 0;
 	}
 
 	return cfg->init(cfg);
-
+#else
+	(void)cfg;
+	return 0;
+#endif
 }
 
 static int cfg_deinit(const struct nvb_config *cfg)
 {
+#ifdef NVB_CFG_INITDEINIT
 	if (cfg->deinit == NULL) {
 		return 0;
 	}
 
 	return cfg->deinit(cfg);
+#else
+	(void)cfg;
+	return 0;
+#endif
 }
 
 /* Physical blocks interface */
