@@ -195,6 +195,9 @@ struct nvb_info {
 	/* Delete logical blocks. */
 	int (*delete)(struct nvb_info *info, uint16_t sblock, uint16_t bcnt);
 
+	/* Sync data to storage. */
+	int (*sync)(struct nvb_info *info);
+
 	/* ioctl for logical blocks */
 	int (*ioctl)(struct nvb_info *info, uint8_t cmd, void *buff);
 };
@@ -282,6 +285,17 @@ int nvb_write(struct nvb_info *info, const void *data, uint16_t sblock,
  * @retval 0 on success, -ERRNO otherwise.
  */
  int nvb_delete(struct nvb_info *info, uint16_t sblock, uint16_t bcnt);
+
+ /**
+ * @brief Sync data to storage
+ *
+ * Sync data to storage (add checkpoint).
+ *
+ * @param info Pointer to logical block object
+ *
+ * @retval 0 on success, -ERRNO otherwise.
+ */
+ int nvb_sync(struct nvb_info *info);
 
  /**
  * @brief IOCTL interface for a logical block object

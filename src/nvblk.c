@@ -1030,12 +1030,6 @@ int nvb_raw_write(struct nvb_info *info, const void *data, uint16_t sblock,
 		data8 += (1 << info->cfg->log2_bs);
 	}
 
-	if (rc != 0) {
-		goto end;
-	}
-
-	rc = nvb_sync_block(info);
-end:
 	return rc;
 }
 
@@ -1058,8 +1052,6 @@ int nvb_raw_delete(struct nvb_info *info, uint16_t sblock, uint16_t bcnt)
 		goto end;
 	}
 
-	rc = nvb_sync_block(info);
-
 	if (info->used == 0U) {
 		info->tail = info->head;
 		info->tail_cpe = 0U;
@@ -1067,6 +1059,11 @@ int nvb_raw_delete(struct nvb_info *info, uint16_t sblock, uint16_t bcnt)
 	}
 end:
 	return rc;
+}
+
+int nvb_raw_sync(struct nvb_info *info)
+{
+	return nvb_sync_block(info);
 }
 
 /* Get and set some basic properties of the logical block solution */
@@ -1130,6 +1127,7 @@ int nvb_init(struct nvb_info *info, const struct nvb_config *cfg)
 	info->read = nvb_raw_read;
 	info->write = nvb_raw_write;
 	info->delete = nvb_raw_delete;
+	info->sync = nvb_raw_sync;
 	info->ioctl = nvb_raw_ioctl;
 
 end:
@@ -1176,6 +1174,7 @@ int nvb_init_ro(struct nvb_info *info, const struct nvb_config *cfg)
 	info->read = nvb_raw_read;
 	info->write = NULL;
 	info->delete = NULL;
+	info->sync = NULL;
 	info->ioctl = nvb_raw_ioctl;
 
 end:
@@ -1207,6 +1206,7 @@ int nvb_deinit(struct nvb_info *info)
 	info->read = NULL;
 	info->write = NULL;
 	info->delete = NULL;
+	info->sync = NULL;
 	info->ioctl = NULL;
 
 end:
@@ -1272,6 +1272,23 @@ int nvb_delete(struct nvb_info *info, uint16_t sblock, uint16_t bcnt)
 	}
 
 	rc = info->delete(info, sblock, bcnt);
+	(void)cfg_unlock(cfg);
+end:
+	return rc;
+}
+
+/* Sync data to storage */
+int nvb_sync(struct nvb_info *info)
+{
+	const struct nvb_config *cfg = info->cfg;
+	int rc;
+
+	rc = cfg_lock(cfg);
+	if (rc != 0) {
+		goto end;
+	}
+
+	rc = info->sync(info);
 	(void)cfg_unlock(cfg);
 end:
 	return rc;

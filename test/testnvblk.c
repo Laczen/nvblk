@@ -200,6 +200,9 @@ void test_rwd(struct nvb_config *cfg, uint16_t *sector, uint8_t *sector_val,
 		TEST_ASSERT_EQUAL_INT_MESSAGE(0, rc, "write failed");
 	}
 
+	rc = nvb_sync(tst);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(0, rc, "sync failed");
+
 	/* Read data */
 	for (size_t i = 0; i < cnt; i++) {
 		test_set_block(wr_data, sector_val[i], bs);
@@ -227,6 +230,8 @@ void test_rwd(struct nvb_config *cfg, uint16_t *sector, uint8_t *sector_val,
 	for (size_t i = 0; i < cnt; i++) {
 		rc = nvb_delete(tst, sector[i], 1);
 		TEST_ASSERT_EQUAL_INT_MESSAGE(0, rc, "delete failed");
+		rc = nvb_sync(tst);
+		TEST_ASSERT_EQUAL_INT_MESSAGE(0, rc, "sync failed");
 		for (size_t j = 0; j <= i; j++) {
 			rc = nvb_read(tst, rd_data, sector[i], 1);
 			TEST_ASSERT_NOT_EQUAL_INT_MESSAGE(0, rc, "read succeeded");
@@ -238,7 +243,6 @@ void test_rwd(struct nvb_config *cfg, uint16_t *sector, uint8_t *sector_val,
 			TEST_ASSERT_EQUAL_MEMORY_MESSAGE(wr_data, rd_data, bs, "data error");
 		}
 	}
-
 }
 
 void test_init(void)
