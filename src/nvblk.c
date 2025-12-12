@@ -667,7 +667,6 @@ static int nvb_move_tail_data(struct nvb_info *info)
 	};
 
 	rc = nvb_write_sector(info, &ctx, wr_meta_me);
-
 end:
 	info->tail_cpe++;
 	if (info->tail_cpe == spcp) {
@@ -819,11 +818,18 @@ static int nvb_delete_block(struct nvb_info *info, uint16_t t)
 
 	if (d < 0) {
 		/* last item deleted */
-		info->root = NVB_BLOCK_NONE;
-		info->used = 0U;
-		info->tail = info->head;
-		info->tail_cpe = 0U;
-		rc = nvb_add_meta(info);
+		for (;;) {
+			info->root = NVB_BLOCK_NONE;
+			info->used = 0U;
+			info->tail = info->head;
+			info->tail_cpe = 0U;
+			rc = nvb_add_meta(info);
+			if (rc == 0) {
+				break;
+			}
+
+			nvb_head_advance(info);
+		}
 		goto end;
 	}
 
@@ -929,6 +935,11 @@ static int nvb_raw_init(struct nvb_info *info)
 	bool valid = false;
 
 	info->log2_bpcp = 0U;
+
+	/* Block size too small to fit 1 checkpoint */
+	if (bs < (NVB_CP_MAP_ENTRY_SIZE + NVB_CP_OVERHEAD)) {
+		goto end;
+	}
 
 	/* Calculate the blocks per checkpoint */
 	while (true) {

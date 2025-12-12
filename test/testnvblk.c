@@ -69,6 +69,8 @@ struct nvb_config allgoodcfg = {
 	.sp_eb = SPEB,
 };
 
+static uint32_t bad_block = 7U;
+
 static int my_prog_bad(const struct nvb_config *cfg, uint32_t p, const void *buffer)
 {
 	const uint32_t bsize = (1 << cfg->log2_bs);
@@ -77,15 +79,15 @@ static int my_prog_bad(const struct nvb_config *cfg, uint32_t p, const void *buf
 	const uint8_t *buf = (const uint8_t *)buffer;
 
 	if (off >= sizeof(data)) {
-		return -NVB_EFAULT;
-	}
-
-	if ((off / bsize) == 14U) {
-		return -NVB_EFAULT;
+		return -NVB_EINVAL;
 	}
 
 	if (off % ebsize == 0U) {
 		memset(&data[off], 0xff, ebsize);
+	}
+
+	if (p == bad_block) {
+		return -NVB_EFAULT;
 	}
 
 	memcpy(&data[off], buf, bsize);
@@ -148,9 +150,6 @@ static void init_nvb(struct nvb_info *info, const struct nvb_config *cfg)
 	uint32_t bcnt;
 	int rc;
 
-	printf("Sizes: mbuf %ld gbuf %ld data %ld\n", sizeof(mbuf),
-	       sizeof(gbuf), sizeof(data));
-
 	info->cfg = NULL;
 	clear_nvb_storage();
 
@@ -182,19 +181,28 @@ void tearDown(void)
 {
 }
 
-void test_rwd(struct nvb_config *cfg, uint16_t *sector, uint8_t *sector_val,
-	      size_t cnt)
+void test_rwd(struct nvb_config *cfg, uint16_t *sector, uint8_t *sector_val)
 {
 	struct nvb_info *tst = &test;
 	const uint32_t bs = (1 << cfg->log2_bs);
 	char wr_data[bs], rd_data[bs];
+	uint32_t bcnt;
 	int rc;
 
 	/* Acquire tst */
 	init_nvb(tst, cfg);
 
+	/* Get the maximum allowed blocks */
+	nvb_ioctl(tst, NVB_CMD_GET_BLK_COUNT, (void *)&bcnt);
+
 	/* Write data */
-	for (size_t i = 0; i < cnt; i++) {
+	for (size_t i = 0; i < bcnt; i++) {
+		test_set_block(wr_data, sector_val[i], bs);
+		rc = nvb_write(tst, wr_data, sector[i], 1);
+		TEST_ASSERT_EQUAL_INT_MESSAGE(0, rc, "write failed");
+	}
+
+	for (size_t i = bcnt >> 1; i < bcnt; i++) {
 		test_set_block(wr_data, sector_val[i], bs);
 		rc = nvb_write(tst, wr_data, sector[i], 1);
 		TEST_ASSERT_EQUAL_INT_MESSAGE(0, rc, "write failed");
@@ -204,7 +212,7 @@ void test_rwd(struct nvb_config *cfg, uint16_t *sector, uint8_t *sector_val,
 	TEST_ASSERT_EQUAL_INT_MESSAGE(0, rc, "sync failed");
 
 	/* Read data */
-	for (size_t i = 0; i < cnt; i++) {
+	for (size_t i = 0; i < bcnt; i++) {
 		test_set_block(wr_data, sector_val[i], bs);
 		rc = nvb_read(tst, rd_data, sector[i], 1);
 		TEST_ASSERT_EQUAL_INT_MESSAGE(0, rc, "read failed");
@@ -219,7 +227,7 @@ void test_rwd(struct nvb_config *cfg, uint16_t *sector, uint8_t *sector_val,
 	TEST_ASSERT_EQUAL_INT_MESSAGE(0, rc, "init failed");
 
 	/* Read */
-	for (size_t i = 0; i < cnt; i++) {
+	for (size_t i = 0; i < bcnt; i++) {
 		test_set_block(wr_data, sector_val[i], bs);
 		rc = nvb_read(tst, rd_data, sector[i], 1);
 		TEST_ASSERT_EQUAL_INT_MESSAGE(0, rc, "read failed");
@@ -227,7 +235,7 @@ void test_rwd(struct nvb_config *cfg, uint16_t *sector, uint8_t *sector_val,
 	}
 
 	/* Delete */
-	for (size_t i = 0; i < cnt; i++) {
+	for (size_t i = 0; i < bcnt; i++) {
 		rc = nvb_delete(tst, sector[i], 1);
 		TEST_ASSERT_EQUAL_INT_MESSAGE(0, rc, "delete failed");
 		rc = nvb_sync(tst);
@@ -236,7 +244,7 @@ void test_rwd(struct nvb_config *cfg, uint16_t *sector, uint8_t *sector_val,
 			rc = nvb_read(tst, rd_data, sector[i], 1);
 			TEST_ASSERT_NOT_EQUAL_INT_MESSAGE(0, rc, "read succeeded");
 		}
-		for (size_t j = i + 1; j < cnt; j++) {
+		for (size_t j = i + 1; j < bcnt; j++) {
 			test_set_block(wr_data, sector_val[j], bs);
 			rc = nvb_read(tst, rd_data, sector[j], 1);
 			TEST_ASSERT_EQUAL_INT_MESSAGE(0, rc, "read failed");
@@ -254,33 +262,36 @@ void test_init(void)
 	report_nvb(tst);
 }
 
-#define TST_MAX_GOOD 20
-#define TST_MAX_BAD  13
-
 void test_rwd_lin(void) {
-	uint16_t sector[TST_MAX_GOOD];
-	uint8_t sector_val[TST_MAX_GOOD];
+	uint16_t sector[((1 << LOG2_BPEB) * EB)];
+	uint8_t sector_val[((1 << LOG2_BPEB) * EB)];
 
-	for (size_t i = 0; i < TST_MAX_GOOD; i++) {
+	for (size_t i = 0; i < ((1 << LOG2_BPEB) * EB); i++) {
 		sector[i] = (uint16_t)i;
 		sector_val[i] = (uint8_t)i;
 	}
 
-	test_rwd(&allgoodcfg, sector, sector_val, TST_MAX_GOOD);
-	test_rwd(&badblockcfg, sector, sector_val, TST_MAX_BAD);
+	test_rwd(&allgoodcfg, sector, sector_val);
+	for (int i = 0; i < ((1 << LOG2_BPEB) * EB); i++) {
+	 	bad_block = i;
+	 	test_rwd(&badblockcfg, sector, sector_val);
+	}
 }
 
 void test_rwd_rnd(void) {
-	uint16_t sector[TST_MAX_GOOD];
-	uint8_t sector_val[TST_MAX_GOOD];
+	uint16_t sector[((1 << LOG2_BPEB) * EB)];
+	uint8_t sector_val[((1 << LOG2_BPEB) * EB)];
 
-	for (size_t i = 0; i < TST_MAX_GOOD; i++) {
+	for (size_t i = 0; i < ((1 << LOG2_BPEB) * EB); i++) {
 		sector[i] = (uint16_t)rand();
 		sector_val[i] = (uint8_t)i;
 	}
 
-	test_rwd(&allgoodcfg, sector, sector_val, TST_MAX_GOOD);
-	test_rwd(&badblockcfg, sector, sector_val, TST_MAX_BAD);
+	test_rwd(&allgoodcfg, sector, sector_val);
+	for (int i = 0; i < ((1 << LOG2_BPEB) * EB); i++) {
+	 	bad_block = i;
+	 	test_rwd(&badblockcfg, sector, sector_val);
+	}
 }
 
 int main(void)
