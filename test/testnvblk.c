@@ -7,10 +7,13 @@
 #define TEST_PRINTF(cmd)
 #endif
 
-#define LOG2_BS 8	/* block size = 256 */
-#define LOG2_BPEB 3	/* 8 blocks per erase block (2Kb) */
-#define EB 4            /* 4 erase blocks */
+#define LOG2_BS 8	/* BS (block size) = 256 */
+#define LOG2_BPEB 3	/* LOG2_BS = 7 requires LOG2_BPEB >= 2 */
+                        /* LOG2_BS = 8 requires LOG2_BPEB >= 3 */
+			/* LOG2_BS = 9 requires LOG2_BPEB >= 3 */
+#define EB 5            /* 5 erase blocks */
 #define SPEB 1          /* 1 spare erase block */
+#define BBSPEB 3	/* 3 spare erase blocks in for 2 bad blocks case */
 
 uint8_t data[EB << (LOG2_BS + LOG2_BPEB)] = { 0xff };
 
@@ -69,7 +72,8 @@ struct nvb_config allgoodcfg = {
 	.sp_eb = SPEB,
 };
 
-static uint32_t bad_block = 7U;
+static uint32_t bad_block0;
+static uint32_t bad_block1;
 
 static int my_prog_bad(const struct nvb_config *cfg, uint32_t p, const void *buffer)
 {
@@ -86,7 +90,7 @@ static int my_prog_bad(const struct nvb_config *cfg, uint32_t p, const void *buf
 		memset(&data[off], 0xff, ebsize);
 	}
 
-	if (p == bad_block) {
+	if ((p == bad_block0) || (p == bad_block1)) {
 		return -NVB_EFAULT;
 	}
 
@@ -110,7 +114,7 @@ struct nvb_config badblockcfg = {
 	.log2_bs = LOG2_BS,
 	.log2_bpeb = LOG2_BPEB,
 	.eb = EB,
-	.sp_eb = 2 * SPEB,
+	.sp_eb = BBSPEB,
 };
 
 struct nvb_info test;
@@ -253,7 +257,7 @@ void test_rwd(struct nvb_config *cfg, uint16_t *sector, uint8_t *sector_val)
 	}
 }
 
-void test_init(void)
+void test_init_good(void)
 {
 	struct nvb_config *cfg = &allgoodcfg;
 	struct nvb_info *tst = &test;
@@ -262,7 +266,16 @@ void test_init(void)
 	report_nvb(tst);
 }
 
-void test_rwd_lin(void) {
+void test_init_bad(void)
+{
+	struct nvb_config *cfg = &badblockcfg;
+	struct nvb_info *tst = &test;
+
+	init_nvb(tst, cfg);
+	report_nvb(tst);
+}
+
+void test_rwd_lin_good(void) {
 	uint16_t sector[((1 << LOG2_BPEB) * EB)];
 	uint8_t sector_val[((1 << LOG2_BPEB) * EB)];
 
@@ -272,13 +285,25 @@ void test_rwd_lin(void) {
 	}
 
 	test_rwd(&allgoodcfg, sector, sector_val);
+}
+
+void test_rwd_lin_bad(void) {
+	uint16_t sector[((1 << LOG2_BPEB) * EB)];
+	uint8_t sector_val[((1 << LOG2_BPEB) * EB)];
+
+	for (size_t i = 0; i < ((1 << LOG2_BPEB) * EB); i++) {
+		sector[i] = (uint16_t)i;
+		sector_val[i] = (uint8_t)i;
+	}
+
 	for (int i = 0; i < ((1 << LOG2_BPEB) * EB); i++) {
-	 	bad_block = i;
-	 	test_rwd(&badblockcfg, sector, sector_val);
+	 	bad_block0 = rand() % ((1 << LOG2_BPEB) * EB);
+		bad_block1 = rand() % ((1 << LOG2_BPEB) * EB);
+		test_rwd(&badblockcfg, sector, sector_val);
 	}
 }
 
-void test_rwd_rnd(void) {
+void test_rwd_rnd_good(void) {
 	uint16_t sector[((1 << LOG2_BPEB) * EB)];
 	uint8_t sector_val[((1 << LOG2_BPEB) * EB)];
 
@@ -288,17 +313,32 @@ void test_rwd_rnd(void) {
 	}
 
 	test_rwd(&allgoodcfg, sector, sector_val);
+}
+
+void test_rwd_rnd_bad(void) {
+	uint16_t sector[((1 << LOG2_BPEB) * EB)];
+	uint8_t sector_val[((1 << LOG2_BPEB) * EB)];
+
+	for (size_t i = 0; i < ((1 << LOG2_BPEB) * EB); i++) {
+		sector[i] = (uint16_t)rand();
+		sector_val[i] = (uint8_t)i;
+	}
+
 	for (int i = 0; i < ((1 << LOG2_BPEB) * EB); i++) {
-	 	bad_block = i;
-	 	test_rwd(&badblockcfg, sector, sector_val);
+		bad_block0 = rand() % ((1 << LOG2_BPEB) * EB);
+		bad_block1 = rand() % ((1 << LOG2_BPEB) * EB);
+		test_rwd(&badblockcfg, sector, sector_val);
 	}
 }
 
 int main(void)
 {
 	UNITY_BEGIN();
-	RUN_TEST(test_init);
-	RUN_TEST(test_rwd_lin);
-	RUN_TEST(test_rwd_rnd);
+	RUN_TEST(test_init_good);
+	RUN_TEST(test_init_bad);
+	RUN_TEST(test_rwd_lin_good);
+	RUN_TEST(test_rwd_lin_bad);
+	RUN_TEST(test_rwd_rnd_good);
+	RUN_TEST(test_rwd_rnd_bad);
 	return UNITY_END();
 }

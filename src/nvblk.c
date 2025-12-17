@@ -5,7 +5,6 @@
  */
 
 #include "nvblk/nvblk.h"
-#include <stdlib.h>
 
 /* Lock and unlock for thread safety */
 static inline int cfg_lock(const struct nvb_config *cfg)
@@ -484,7 +483,7 @@ struct nvb_read_ctx {
 };
 
 /* Physically write data (uses nvb_read_ctx to fetch from storage or
- * from a buffer.
+ * from a buffer).
  */
 static int pb_write_data(const struct nvb_config *cfg,
 			 struct nvb_read_ctx *ctx, uint32_t p)
@@ -503,11 +502,10 @@ static int pb_write_data(const struct nvb_config *cfg,
 }
 
 /* Recover from a failed write */
-static int nvb_recovery(struct nvb_info *info, uint16_t vhead)
+static int nvb_recovery(struct nvb_info *info, uint16_t vhead, uint8_t icpe)
 {
 	const struct nvb_config *cfg = info->cfg;
 	const uint8_t spcp = (1 << info->log2_bpcp) - 1;
-	const uint8_t icpe = info->cpe;
 	const uint32_t prd = vhead << info->log2_bpcp;
 	int rc = 0;
 
@@ -535,14 +533,25 @@ static int nvb_recovery(struct nvb_info *info, uint16_t vhead)
 		uint8_t *wr_meta_me = meta_me(cfg->mb, cpe);
 
 		for (uint8_t i = 0; i < NVB_CP_MAP_ALT_CNT; i++) {
-			if (meta_me_get_alt(wr_meta_me, i) != vhead) {
+			if (meta_me_get_alt(wr_meta_me, i) == NVB_BLOCK_NONE) {
+				continue;
+			}
+
+			if ((vhead < info->head) &&
+			    ((meta_me_get_alt(wr_meta_me, i) < vhead) ||
+			     (meta_me_get_alt(wr_meta_me, i) > info->head))) {
+				continue;
+			}
+
+			if ((vhead > info->head) &&
+			    (meta_me_get_alt(wr_meta_me, i) < vhead) &&
+			    (meta_me_get_alt(wr_meta_me, i) > info->head)) {
 				continue;
 			}
 
 			meta_me_set_alt(wr_meta_me, info->head, i);
 		}
 	}
-
 end:
 	return rc;
 }
@@ -557,24 +566,16 @@ static int nvb_write_sector(struct nvb_info *info, struct nvb_read_ctx *ctx,
 	const uint8_t retries_shift = (cfg->log2_bpeb - info->log2_bpcp);
 	const uint8_t spcp = (1 << info->log2_bpcp) - 1;
 	uint8_t *wr_meta_me = meta_me(cfg->mb, info->cpe);
-	uint16_t retries = ((cfg->sp_eb - 1U) >> retries_shift) + 1U;
-	bool recovery;
+	uint16_t retries = ((cfg->sp_eb - 1U) << retries_shift) + 1U;
 	uint16_t vhead;
+	uint8_t cpe;
 	int rc = 0;
 
 	memcpy(wr_meta_me, data_meta_me, NVB_CP_MAP_ENTRY_SIZE);
 
 	vhead = info->head;
-	recovery = false;
+	cpe = info->cpe;
 	while (retries > 0U) {
-		if (recovery)  {
-			retries--;
-			rc = nvb_recovery(info, vhead);
-			if (rc != 0) {
-				continue;
-			}
-		}
-
 		uint32_t p = info->head << info->log2_bpcp;
 
 		rc = pb_write_data(cfg, ctx, p + info->cpe);
@@ -582,7 +583,13 @@ static int nvb_write_sector(struct nvb_info *info, struct nvb_read_ctx *ctx,
 			break;
 		}
 
-		recovery = true;
+		while (retries > 0U) {
+			retries--;
+			rc = nvb_recovery(info, vhead, cpe);
+			if (rc == 0) {
+				break;
+			}
+		}
 	}
 
 	if (rc != 0) {
@@ -596,24 +603,21 @@ static int nvb_write_sector(struct nvb_info *info, struct nvb_read_ctx *ctx,
 		goto end;
 	}
 
-
 	vhead = info->head;
-	recovery = false;
+	cpe = info->cpe;
 	while (retries > 0U) {
-		if (recovery)  {
-			retries--;
-			rc = nvb_recovery(info, vhead);
-			if (rc != 0) {
-				continue;
-			}
-		}
-
 		rc = nvb_add_meta(info);
 		if (rc == 0) {
 			break;
 		}
 
-		recovery = true;
+		while (retries > 0U) {
+			retries--;
+			rc = nvb_recovery(info, vhead, cpe);
+			if (rc == 0) {
+				break;
+			}
+		}
 	}
 
 	if (rc != 0) {
@@ -717,7 +721,7 @@ static int nvb_auto_gc(struct nvb_info *info)
 {
 	const struct nvb_config *cfg = info->cfg;
 	const uint8_t log2_cppeb = cfg->log2_bpeb - info->log2_bpcp;
-	const uint32_t max_cnt = (uint32_t)(cfg->eb << log2_cppeb);
+	const uint32_t max_cnt = (uint32_t)(cfg->eb << log2_cppeb) + 1U;
 	uint32_t cnt = 0;
 	int rc = 0;
 
